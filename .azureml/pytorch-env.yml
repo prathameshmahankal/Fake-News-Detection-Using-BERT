@@ -1,0 +1,17 @@
+name: pytorch-aml-env
+channels:
+    - defaults
+    - pytorch
+dependencies:
+    - python=3.6.2
+    - pytorch
+    - torchvision
+    - pandas
+    - numpy
+    - joblib
+    - pip
+    - pip:
+        - azureml-sdk
+        - sklearn
+        - transformers
+        - matplotlib
