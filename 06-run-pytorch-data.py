@@ -1,14 +1,16 @@
-from azureml.core import Workspace
-from azureml.core import Experiment
-from azureml.core import Environment
-from azureml.core import ScriptRunConfig
+from azureml.core import Workspace, Experiment, Environment, ScriptRunConfig
+from azureml.core.authentication import InteractiveLoginAuthentication
 from azureml.core import Dataset
+from azureml.widgets import RunDetails
 
 if __name__ == "__main__":
-    # ws = Workspace.from_config()
-    from azureml.core import Workspace, Experiment, Environment, ScriptRunConfig
-    from azureml.core.authentication import InteractiveLoginAuthentication
 
+    """
+    This script sets up the workspace and the experiment 
+    and submits the experiment once it is ready
+    """
+
+    # ws = Workspace.from_config()
     interactive_auth = InteractiveLoginAuthentication(tenant_id="72f988bf-86f1-41af-91ab-2d7cd011db47")
     ws = Workspace.from_config(auth=interactive_auth)
 
@@ -37,7 +39,5 @@ if __name__ == "__main__":
     config.run_config.environment = env
 
     run = experiment.submit(config)
-    aml_url = run.get_portal_url()
+    # aml_url = run.get_portal_url()
     print("Submitted to compute cluster. Click link below")
-    print("")
-    print(aml_url)
