@@ -2,6 +2,7 @@ import os, uuid
 import pandas as pd
 import requests
 import json
+import time
 import re
 import string
 from io import StringIO
@@ -10,6 +11,7 @@ from azure.core.exceptions import ResourceExistsError
 from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient, __version__
 from azureml.core import Workspace, Experiment, Environment, ScriptRunConfig
 from azureml.core.authentication import InteractiveLoginAuthentication
+from azure.servicebus import ServiceBusClient, ServiceBusMessage
 import resources.azure_messaging_config as conf
 import ast
 
@@ -28,7 +30,8 @@ class Predict:
 		interactive_auth = InteractiveLoginAuthentication(tenant_id=conf.TENANT_ID)
 		self.ws = Workspace.from_config(auth=interactive_auth)
 
-		self.service = Webservice(workspace=self.ws, name='myservice')
+		# self.service = Webservice(workspace=self.ws, name='aks-gpu-service')
+		self.service = Webservice(workspace=self.ws, name='my-new-aci-service')
 		# print(self.service.scoring_uri)
 
 	def get_preds(self, service, data):
@@ -36,8 +39,12 @@ class Predict:
 		scoring_uri = self.service.scoring_uri
 		# If the service is authenticated, set the key or token
 		# primary_key, _ = service.get_keys()
+		
+		# api_key = self.service.get_keys()[0]
+		# headers = {'Content-Type': 'application/json', 'Authorization': ('Bearer ' + api_key)}
+		
 		headers = {'Content-Type': 'application/json'}
-		data = {'text': data.tweet.to_list()}
+		data = {'text': data.cleaned_tweet.to_list()}
 		data = json.dumps(data)
 		# print(data)
 		resp = requests.post(scoring_uri, data=data, headers=headers)
@@ -47,15 +54,15 @@ class Predict:
 
 	def clean(self, df_curr):
 	    
-	    df_curr['tweet'] = df_curr['tweet'].apply(str)
-	    df_curr['tweet'] = df_curr['tweet'].apply(lambda x:re.sub(r'http\S+', '', x))
-	    df_curr['tweet'] = df_curr['tweet'].apply(lambda x:re.sub(r'@\S+ ', '', x))
-	    df_curr['tweet'] = df_curr['tweet'].apply(lambda x:''.join(i for i in x if not i.isdigit()))
+	    df_curr['cleaned_tweet'] = df_curr['tweet'].apply(str)
+	    df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].apply(lambda x:re.sub(r'http\S+', '', x))
+	    df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].apply(lambda x:re.sub(r'@\S+ ', '', x))
+	    df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].apply(lambda x:''.join(i for i in x if not i.isdigit()))
 	    table = str.maketrans(string.punctuation, ' '*len(string.punctuation))
-	    df_curr['tweet'] = df_curr['tweet'].str.translate(table)
-	    df_curr['tweet'] = df_curr['tweet'].str.replace(' +', ' ')
-	    df_curr['tweet'] = df_curr['tweet'].str.lower()
-	    df_curr['tweet'] = df_curr['tweet'].str.strip()
+	    df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].str.translate(table)
+	    df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].str.replace(' +', ' ')
+	    df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].str.lower()
+	    df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].str.strip()
 	    
 	    return df_curr
 
@@ -76,14 +83,29 @@ class Predict:
 
 		os.remove(os.path.join(local_path, 'tmp.csv'))
 
+	def notify_viz_pipeline(self, notif_message):
+	    
+	    servicebus_client = ServiceBusClient.from_connection_string(conn_str=conf.ML_QUEUE_CONNECTION_STR,
+	                                                                logging_enable=True)
+	    with servicebus_client:
+	        # get a Queue Sender object to send messages to the queue
+	        sender = servicebus_client.get_queue_sender(queue_name=conf.VIZ_QUEUE_NAME)
+	        with sender:
+	        # send one message
+	            serialized_msg = ServiceBusMessage(json.dumps(notif_message))
+	            sender.send_messages(serialized_msg)
+	            print("Notified visualization pipeline for request_id : {}".format((notif_message["request_id"])))
+
 	def main(self, reupload_flag=False):
 
 		blob_list = self.container_client.list_blobs()
 		prediction_list = []
 		predictions = []
 
+		start = time.time()
+
 		for blob in blob_list:
-			if self.REQUEST_ID+'/' in blob.name:
+			if self.REQUEST_ID+'/fileblock' in blob.name:
 				print("Working on blob:", blob.name)
 				blob_client = self.blob_service_client.get_blob_client(container=self.CONTAINER_NAME, blob=blob.name)
 				data = blob_client.download_blob().readall()
@@ -93,6 +115,7 @@ class Predict:
 				df_curr = self.clean(df_curr)
 				predictions = self.get_preds(self.service, df_curr)
 				predictions = ast.literal_eval(predictions)
+				print("Data type", type(predictions))
 				print("Predictions generated for blob:", blob.name)
 
 				df_curr['predictions'] = predictions
@@ -102,12 +125,17 @@ class Predict:
 
 			prediction_list.extend(predictions)
 
+		print("Time taken for predictions:", time.time() - start)
+		
+		notif_message = {"container_name" : self.CONTAINER_NAME, "blob_name" : self.BLOB_NAME, "request_id" : self.REQUEST_ID}
+		self.notify_viz_pipeline(notif_message)
+
 		return prediction_list
 
 if __name__ == "__main__":
-	
-	CONTAINER_NAME, BLOB_NAME, REQUEST_ID = "container042021", 'Blob_21_04_2021', 'request_5655'
-	
+
+	CONTAINER_NAME, BLOB_NAME, REQUEST_ID = "container052021", 'Blob_11_05_2021', 'request_4110'
+
 	p = Predict(CONTAINER_NAME, BLOB_NAME, REQUEST_ID)
 	# 'Blob_21_04_2021/request_5655/fileblock_5.csv'
 	predictions = p.main(reupload_flag=True)
