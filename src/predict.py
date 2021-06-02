@@ -20,6 +20,10 @@ class Predict:
 
 	def __init__(self, CONTAINER_NAME, BLOB_NAME, REQUEST_ID):
 
+		"""
+		First, we will initialize different variables that we will use in the code below
+		"""
+
 		self.CONTAINER_NAME = CONTAINER_NAME
 		self.BLOB_NAME = BLOB_NAME
 		self.REQUEST_ID = REQUEST_ID
@@ -35,40 +39,53 @@ class Predict:
 		# self.service = Webservice(workspace=self.ws, name='my-new-aci-service')
 		# print(self.service.scoring_uri)
 
-	def get_preds(self, service, data):
+	def get_preds(self, data):
 	    
+		"""
+		This function receives the dataframe for which we are making predictions
+		"""
+
+		api_key = ""
 		scoring_uri = self.service.scoring_uri
-		# If the service is authenticated, set the key or token
-		# primary_key, _ = service.get_keys()
 		
+		# If the service is authenticated, set the key or token by uncommenting below code
 		# api_key = self.service.get_keys()[0]
-		# headers = {'Content-Type': 'application/json', 'Authorization': ('Bearer ' + api_key)}
+
+		if api_key:
+			headers = {'Content-Type': 'application/json', 'Authorization': ('Bearer ' + api_key)}
+		else:
+			headers = {'Content-Type': 'application/json'}
 		
-		headers = {'Content-Type': 'application/json'}
 		data = {'text': data.cleaned_tweet.to_list()}
 		data = json.dumps(data)
-		# print(data)
 		resp = requests.post(scoring_uri, data=data, headers=headers)
-		# print(resp.text)
-
+		
 		return resp.text
 
 	def clean(self, df_curr):
-	    
-	    df_curr['cleaned_tweet'] = df_curr['tweet'].apply(str)
-	    df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].apply(lambda x:re.sub(r'http\S+', '', x))
-	    df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].apply(lambda x:re.sub(r'@\S+ ', '', x))
-	    df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].apply(lambda x:''.join(i for i in x if not i.isdigit()))
-	    table = str.maketrans(string.punctuation, ' '*len(string.punctuation))
-	    df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].str.translate(table)
-	    df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].str.replace(' +', ' ', regex=True)
-	    df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].str.lower()
-	    df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].str.strip()
-	    
-	    return df_curr
+
+		"""
+		This function cleans the tweet column in our dataframe
+		"""
+
+		df_curr['cleaned_tweet'] = df_curr['tweet'].apply(str)
+		df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].apply(lambda x:re.sub(r'http\S+', '', x))
+		df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].apply(lambda x:re.sub(r'@\S+ ', '', x))
+		df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].apply(lambda x:''.join(i for i in x if not i.isdigit()))
+		table = str.maketrans(string.punctuation, ' '*len(string.punctuation))
+		df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].str.translate(table)
+		df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].str.replace(' +', ' ', regex=True)
+		df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].str.lower()
+		df_curr['cleaned_tweet'] = df_curr['cleaned_tweet'].str.strip()
+
+		return df_curr
 
 	def reupload(self, df, blob):
 		    
+		"""
+		This function reuploads the dataframe with predictions back tot he blob storage
+		"""
+
 		local_path = os.path.join("tmp", self.BLOB_NAME, self.REQUEST_ID)
 		if not os.path.exists(local_path):
 			os.makedirs(local_path, 0o777)
@@ -85,21 +102,47 @@ class Predict:
 		os.remove(os.path.join(local_path, 'tmp.csv'))
 
 	def notify_viz_pipeline(self, notif_message):
-	    
-	    servicebus_client = ServiceBusClient.from_connection_string(conn_str=conf.ML_QUEUE_CONNECTION_STR,
-	                                                                logging_enable=True)
-	    with servicebus_client:
-	        # get a Queue Sender object to send messages to the queue
-	        sender = servicebus_client.get_queue_sender(queue_name=conf.VIZ_QUEUE_NAME)
-	        with sender:
-	        # send one message
-	            serialized_msg = ServiceBusMessage(json.dumps(notif_message))
-	            sender.send_messages(serialized_msg)
-	            print("Notified visualization pipeline for request_id : {}".format((notif_message["request_id"])))
+
+		"""
+		This function informs the viz pipeline that the dataset with predictions is successfully reuploaded
+		can be used for making the necessary visualizations
+		"""
+
+		servicebus_client = ServiceBusClient.from_connection_string(conn_str=conf.ML_QUEUE_CONNECTION_STR,
+		                                                            logging_enable=True)
+		with servicebus_client:
+		    # get a Queue Sender object to send messages to the queue
+		    sender = servicebus_client.get_queue_sender(queue_name=conf.VIZ_QUEUE_NAME)
+		    with sender:
+		    # send one message
+		        serialized_msg = ServiceBusMessage(json.dumps(notif_message))
+		        sender.send_messages(serialized_msg)
+		        print("Notified visualization pipeline for request_id : {}".format((notif_message["request_id"])))
+
+	def update_local_list(self, request_id, action):
+		with open("messages.json", "r") as jsonFile:
+		    messages = json.load(jsonFile)
+
+		if action=="APPEND":
+			messages["request_ids"].append(request_id)
+			print("Request {} appended".format(request_id))
+		elif action=="REMOVE":
+			try:
+			    messages["request_ids"].remove(request_id)
+			    print("Request {} removed".format(request_id))
+			except:
+				print("Request not present. Might be already removed")
+
+		with open("messages.json", "w") as jsonFile:
+		    json.dump(messages, jsonFile)
 
 	def main(self, reupload_flag=False):
 
-		blob_list = self.container_client.list_blobs()
+		"""
+		This function fetches the files to make predictions for and passes it to the get_preds function
+		"""
+
+		blob_list = self.container_client.list_blobs() # making a list of all the blobs
 		prediction_list = []
 		predictions = []
 
@@ -113,20 +156,45 @@ class Predict:
 				s=str(data,'utf-8')
 				data = StringIO(s) 
 				df_curr = pd.read_csv(data, lineterminator='\n')
+				df_curr = df_curr[[ 'id','conversation_id','created_at','tweet','source','language',
+									'in_reply_to_user_id','hashtags','urls','media','retweet_count',
+									'reply_count','like_count','quote_count','user_id','user_screen_name',
+									'user_name','user_description','user_location','user_created_at',
+									'user_followers_count','user_friends_count','user_statuses_count',
+									'user_verified','references']]
 				df_curr = self.clean(df_curr)
-				predictions = self.get_preds(self.service, df_curr)
-				predictions = ast.literal_eval(predictions)
-				print("Predictions generated for blob:", blob.name)
+				
+				# generate predictions
+				predictions = self.get_preds(df_curr)
+				# print(type(predictions))
+				
 
-				# df_curr['predictions'] = predictions
+				# Retry mechanism to generate predictions for each fileblock belonging to one request id
+				trial = 10
+				while trial>0:
+					try:
+						trial-=1
+						predictions = ast.literal_eval(predictions)
+					except:
+						print("Prediction generation failed. Retrying..")
+						continue
+					break
+				
+				print("Predictions generated for blob:", blob.name)
+				# print("Length of predictions:", len(predictions))
+				if trial>0:
+					df_curr['predictions'] = predictions
+				else:
+					df_curr['predictions'] = [1]*len(predictions)
 
 				if reupload_flag:
 					self.reupload(df_curr, blob.name)
 
-			# prediction_list.extend(predictions)
+			# collect predictions for each file
+			prediction_list.extend(predictions)
 
 		print("Time taken for predictions:", time.time() - start)
-		
+
 		notif_message = {"container_name" : self.CONTAINER_NAME, "blob_name" : self.BLOB_NAME, "request_id" : self.REQUEST_ID}
 		self.notify_viz_pipeline(notif_message)
 
@@ -134,15 +202,15 @@ class Predict:
 
 if __name__ == "__main__":
 
-	CONTAINER_NAME, BLOB_NAME, REQUEST_ID = "container052021", 'Blob_24_05_2021', 'request_7533'
+	CONTAINER_NAME, BLOB_NAME, REQUEST_ID = "container062021", 'Blob_01_06_2021', 'request_3889'
 
 	p = Predict(CONTAINER_NAME, BLOB_NAME, REQUEST_ID)
-	# 'Blob_21_04_2021/request_5655/fileblock_5.csv'
 	predictions = p.main(reupload_flag=True)
-	# print(predictions)
 
 # docker build -t dockerpython .
 # docker run dockerpython
+
+# docker stop c3ff78ff4eeb
 
 # SPARK_HOME - C:\Users\pmahankal.HIREZCORP\Desktop\Spark\spark-3.0.0-bin-hadoop2.7
 # PYTHONPATH - %SPARK_HOME%\python;%SPARK_HOME%\python\lib\py4j-0.10.9-src.zip:%PYTHONPATH%

@@ -22,11 +22,16 @@ def read_queue():
                     queue_empty = False
                     msg_dict = json.loads(str(msg))
                     print(msg_dict)
+                    
                     p = Predict(msg_dict['container_name'],
                                 msg_dict['blob_name'], 
                                 msg_dict['request_id'])
-                    p.main(reupload_flag=True)
+                    p.update_local_list(msg_dict['request_id'], "APPEND")
+                    
                     receiver.complete_message(msg)
+                    p.main(reupload_flag=True)
+                    p.update_local_list(msg_dict['request_id'], "REMOVE")
+                    # receiver.complete_message(msg)
         return queue_empty
 
     except Exception as ex:

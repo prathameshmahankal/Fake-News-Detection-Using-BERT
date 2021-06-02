@@ -16,9 +16,9 @@ env = Environment.from_conda_specification(
         file_path='../.azureml/pytorch-env.yml'
         )
 
-model = Model(ws, name='short_text_model')
+model = Model(ws, name='short_text_model') # name is the name of your registered model
 
-service_name = "mynewservice"
+service_name = "mynewservice" # deployment service name
 
 inference_config = InferenceConfig(environment=env, entry_script='./echo_score.py')
 
