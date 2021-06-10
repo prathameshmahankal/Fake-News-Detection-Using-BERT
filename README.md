@@ -1,7 +1,12 @@
 # Fake-News-Detection-Using-BERT
+
+## Overview
+
 This project tries to classify tweets as real or fake depending on the tweet text and also the text present in the article that is tagged in the tweet. This particular implementation uses BERT for classification.
 
 Porject Website: https://prathameshmahankal.github.io/tracking-online-disinformation/
+
+## Build Steps
 
 Follow these steps to build this project in your local system:
 1. Install all the dependencies using the **requirements.txt** file
@@ -14,7 +19,7 @@ Follow these steps to build this project in your local system:
 8. Next, you need to build your **inference pipeline**. In this case, the **predict** script is the one that takes in data from blob storage and generates predictions for that file. In case you have a dataset that you wish to generate predictions for, you could use the **inference** script instead.
 9. I also have a **receiver** script which waits for a message from the data extraction pipeline (handled by a different team member) and runs the predict script whenever data for any request is ready in the blob storage. This script might not be useful for someone not related to the project.
 
-Datasets Used:
+## Datasets Used
 * LIAR
 * ISOT Fake News
 * Buzzfeed Political News Data
